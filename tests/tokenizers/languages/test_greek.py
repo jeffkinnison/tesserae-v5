@@ -10,6 +10,7 @@ import sys
 
 from cltk.semantics.latin.lookup import Lemmata
 
+from tesserae.db.entities import Text
 from tesserae.tokenizers import GreekTokenizer
 from tesserae.utils import TessFile
 
@@ -29,14 +30,14 @@ def greek_tokens(greek_files):
 @pytest.fixture(scope='module')
 def greek_word_frequencies(greek_files):
     freqs = []
-    grc = GreekTokenizer()
+    diacriticals = '\u0313\u0314\u0301\u0342\u0300\u0301\u0308\u0345'
     for fname in greek_files:
         freq = {}
         fname = os.path.splitext(fname)[0] + '.freq_score_word'
         with open(fname, 'r') as f:
             for line in f.readlines():
                 if '#' not in line:
-                    word, n = re.split('[^\w' + grc.diacriticals + ']+', line,
+                    word, n = re.split('[^\w' + diacriticals + ']+', line,
                                        flags=re.UNICODE)[:-1]
                     freq[word] = int(n)
         freqs.append(freq)
@@ -46,8 +47,9 @@ def greek_word_frequencies(greek_files):
 class TestGreekTokenizer(TestBaseTokenizer):
     __test_class__ = GreekTokenizer
 
-    def test_init(self):
-        t = self.__test_class__()
+    def test_init(self, connection):
+        t = self.__test_class__(connection)
+        assert t.connection is connection
         assert hasattr(t, 'diacriticals')
         assert isinstance(t.diacriticals, str)
         assert hasattr(t, 'vowels')
@@ -63,8 +65,8 @@ class TestGreekTokenizer(TestBaseTokenizer):
         assert hasattr(t, 'lemmatizer')
         assert isinstance(t.lemmatizer, Lemmata)
 
-    def test_normalize(self, greek_files, greek_tokens):
-        grc = self.__test_class__()
+    def test_normalize(self, connection, greek_files, greek_tokens):
+        grc = self.__test_class__(connection)
 
         for i in range(len(greek_files)):
             fname = greek_files[i]
@@ -108,15 +110,16 @@ class TestGreekTokenizer(TestBaseTokenizer):
             #
             #     token_idx = offset
 
-    def test_tokenize(self, greek_files, greek_tokens, greek_word_frequencies):
-        grc = self.__test_class__()
+    def test_tokenize(self, connection, greek_files, greek_tokens,
+                      greek_word_frequencies):
+        grc = self.__test_class__(connection)
 
         for k in range(len(greek_files)):
             fname = greek_files[k]
             ref_tokens = [t for t in greek_tokens[k] if 'FORM' in t]
             ref_freqs = greek_word_frequencies[k]
 
-            t = TessFile(fname)
+            t = TessFile(fname, metadata=Text(language='greek'))
 
             tokens, frequencies = grc.tokenize(t.read())
             tokens = [t for t in tokens

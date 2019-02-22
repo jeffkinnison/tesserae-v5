@@ -11,6 +11,7 @@ import sys
 from cltk.semantics.latin.lookup import Lemmata
 from cltk.stem.latin.j_v import JVReplacer
 
+from tesserae.db.entities import Text
 from tesserae.tokenizers import LatinTokenizer
 from tesserae.utils import TessFile
 
@@ -44,15 +45,16 @@ def latin_word_frequencies(latin_files):
 class TestLatinTokenizer(TestBaseTokenizer):
     __test_class__ = LatinTokenizer
 
-    def test_init(self):
-        t = self.__test_class__()
+    def test_init(self, connection):
+        t = self.__test_class__(connection)
+        assert t.connection is connection
         assert hasattr(t, 'jv_replacer')
         assert isinstance(t.jv_replacer, JVReplacer)
         assert hasattr(t, 'lemmatizer')
         assert isinstance(t.lemmatizer, Lemmata)
 
-    def test_normalize(self, latin_files, latin_tokens):
-        la = self.__test_class__()
+    def test_normalize(self, connection, latin_files, latin_tokens):
+        la = self.__test_class__(connection)
 
         for i in range(len(latin_files)):
             fname = latin_files[i]
@@ -89,15 +91,16 @@ class TestLatinTokenizer(TestBaseTokenizer):
             #
             #     token_idx = offset
 
-    def test_tokenize(self, latin_files, latin_tokens, latin_word_frequencies):
-        la = self.__test_class__()
+    def test_tokenize(self, connection, latin_files, latin_tokens,
+                      latin_word_frequencies):
+        la = self.__test_class__(connection)
 
         for k in range(len(latin_files)):
             fname = latin_files[k]
             ref_tokens = [t for t in latin_tokens[k] if 'FORM' in t]
             ref_freqs = latin_word_frequencies[k]
 
-            t = TessFile(fname)
+            t = TessFile(fname, metadata=Text(language='latin'))
 
             tokens, frequencies = la.tokenize(t.read(), text=t.metadata)
             tokens = [t for t in tokens

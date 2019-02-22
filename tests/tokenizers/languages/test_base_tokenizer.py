@@ -9,17 +9,17 @@ from tesserae.tokenizers import BaseTokenizer
 class TestBaseTokenizer(object):
     __test_class__ = BaseTokenizer
 
-    def test_init(self):
-        t = self.__test_class__()
+    def test_init(self, connection):
+        t = self.__test_class__(connection)
         assert t.tokens == []
         assert t.frequencies == Counter()
 
-    def test_normalize(self):
+    def test_normalize(self, connection):
         test_words = ['foo', 'Bar', 'BAZ', 'FoO bAr BaZ']
         punct = '.?:;"!'
         whitespace = ' \t\n\r'
 
-        t = self.__test_class__()
+        t = self.__test_class__(connection)
 
         # Ensure that an empty string is returned as an empty string
         assert t.normalize('') == ''
@@ -83,8 +83,8 @@ class TestBaseTokenizer(object):
                 assert t.normalize(p + w + word + w + p) == \
                        ''.join([p, w, word.lower(), w, p])
 
-    def test_featurize(self):
-        t = self.__test_class__()
+    def test_featurize(self, connection):
+        t = self.__test_class__(connection)
 
         if self.__test_class__ is BaseTokenizer:
             with pytest.raises(NotImplementedError):
