@@ -10,6 +10,7 @@ import sys
 
 from cltk.semantics.latin.lookup import Lemmata
 
+from tesserae.db import TessMongoConnection
 from tesserae.db.entities import Text
 from tesserae.tokenizers import GreekTokenizer
 from tesserae.utils import TessFile
@@ -66,37 +67,25 @@ class TestGreekTokenizer(TestBaseTokenizer):
         assert isinstance(t.lemmatizer, Lemmata)
 
     def test_normalize(self, connection, greek_files, greek_tokens):
-        grc = self.__test_class__(connection)
+        tessconn = TessMongoConnection('127.0.0.1', 27017, None, None)
+        tessconn.connection = connection
+        grc = self.__test_class__(tessconn)
 
         for i in range(len(greek_files)):
             fname = greek_files[i]
-            ref_tokens = [t for t in greek_tokens[i] if t['FORM'] != '']
+            ref_tokens = [t for t in greek_tokens[i] if 'FORM' in t]
 
             t = TessFile(fname)
 
-            token_idx = 0
+            tokens = re.split(grc.split_pattern, grc.normalize(t.read()))
+            tokens = [t for t in tokens if re.search(grc.word_characters, t)]
 
-            for i, line in enumerate(t.readlines(include_tag=False)):
-                tokens = [t for t in grc.normalize(line)]
-                tokens = [t for t in tokens
-                          if re.search('[' + grc.word_characters + ']+',
-                                       t, flags=re.UNICODE)]
+            correct = map(lambda x: ('FORM' in x[1] and x[0] == x[1]['FORM']) or x[0] == '',
+                          zip(tokens, ref_tokens))
 
-                offset = token_idx + len(tokens)
+            print(tokens)
 
-                correct = map(lambda x: x[0] == x[1]['FORM'],
-                              zip(tokens, ref_tokens[token_idx:offset]))
-
-                if not all(correct):
-                    print(fname, i, line)
-                    print(ref_tokens[token_idx:offset])
-                    for j in range(len(tokens)):
-                        if tokens[j] != ref_tokens[token_idx + j]['FORM']:
-                            print('{}->{}'.format(tokens[j], ref_tokens[token_idx + j]['FORM']))
-
-                assert all(correct)
-
-                token_idx = offset
+            assert all(correct)
 
             # token_idx = 0
             # for i, token in enumerate(t.read_tokens(include_tag=False)):
@@ -112,7 +101,9 @@ class TestGreekTokenizer(TestBaseTokenizer):
 
     def test_tokenize(self, connection, greek_files, greek_tokens,
                       greek_word_frequencies):
-        grc = self.__test_class__(connection)
+        tessconn = TessMongoConnection('127.0.0.1', 27017, None, None)
+        tessconn.connection = connection
+        grc = self.__test_class__(tessconn)
 
         for k in range(len(greek_files)):
             fname = greek_files[k]

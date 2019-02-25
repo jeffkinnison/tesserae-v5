@@ -11,6 +11,7 @@ import sys
 from cltk.semantics.latin.lookup import Lemmata
 from cltk.stem.latin.j_v import JVReplacer
 
+from tesserae.db import TessMongoConnection
 from tesserae.db.entities import Text
 from tesserae.tokenizers import LatinTokenizer
 from tesserae.utils import TessFile
@@ -54,7 +55,9 @@ class TestLatinTokenizer(TestBaseTokenizer):
         assert isinstance(t.lemmatizer, Lemmata)
 
     def test_normalize(self, connection, latin_files, latin_tokens):
-        la = self.__test_class__(connection)
+        tessconn = TessMongoConnection('127.0.0.1', 27017, None, None)
+        tessconn.connection = connection
+        la = self.__test_class__(tessconn)
 
         for i in range(len(latin_files)):
             fname = latin_files[i]
@@ -62,10 +65,13 @@ class TestLatinTokenizer(TestBaseTokenizer):
 
             t = TessFile(fname)
 
-            tokens = la.normalize(t.read())
+            tokens = re.split(la.split_pattern, la.normalize(t.read()))
+            tokens = [t for t in tokens if re.search(la.word_characters, t)]
 
             correct = map(lambda x: ('FORM' in x[1] and x[0] == x[1]['FORM']) or x[0] == '',
                           zip(tokens, ref_tokens))
+
+            assert all(correct)
 
             # token_idx = 0
             #
@@ -93,7 +99,9 @@ class TestLatinTokenizer(TestBaseTokenizer):
 
     def test_tokenize(self, connection, latin_files, latin_tokens,
                       latin_word_frequencies):
-        la = self.__test_class__(connection)
+        tessconn = TessMongoConnection('127.0.0.1', 27017, None, None)
+        tessconn.connection = connection
+        la = self.__test_class__(tessconn)
 
         for k in range(len(latin_files)):
             fname = latin_files[k]
