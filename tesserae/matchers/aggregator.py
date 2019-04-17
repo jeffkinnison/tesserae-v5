@@ -127,6 +127,60 @@ class AggregationMatcher(object):
         stoplist = self.connection.aggregate('frequencies', pipeline, encode=False)
         return [s['_id'] for s in stoplist]
 
+    def get_frequency_data(self, basis, feature):
+        """Retrieve frequency data for scoring.
+
+        Parameters
+        ----------
+        basis : str or list of tesserae.db.entities.Text
+            Either 'corpus' or the list of texts to pull frequency information
+            from.
+        feature : str
+            The type of feature to retrieve frequencies of.
+
+        Returns
+        -------
+        frequencies : dict
+            Dictionary mapping of raw features to frequencies.
+        """
+        # Grab features of the requested type.
+        pipeline = [
+            {'$match': {'feature': feature}}
+        ]
+
+        # If basis is a text or set of texts, filter to only include
+        # frequencies in the requested texts.
+        if basis != corpus:
+            pipeline.append(
+                {'$project': {
+                    'token': True,
+                    'frequency': {
+                        '$sum': ['$frequencies.' + str(t.id) for t in basis]
+                    }
+                }})
+        else:
+            pipeline.append({
+                {'$project': {
+                    'token': True,
+                    'frequency': {
+                        '$reduce': {
+                            'input': {'$objectToArray': '$frequencies'},
+                            'initialValue': 0,
+                            'in': {
+                                '$add': ['$$value', '$$this.v']
+                            }
+                        }
+                    }
+                }}
+            })
+
+        # Retrieve the frequency data and convert it to a dictionary mapping
+        # token to aggregate frequency.
+        freqs = self.connection.aggregate('frequencies', pipeline, encode=False)
+        total = sum([f['frequency'] for f in freqs.values()])
+        freqs = {f['token']: f['frequency'] / total for f in freqs}
+        return freqs
+
     def match(self, texts, unit_types, feature, stopwords_list=[],
               frequency_basis='texts', max_distance=10,
               distance_metric='frequency'):
@@ -161,10 +215,6 @@ class AggregationMatcher(object):
         """
         stoplist = self.get_stoplist(stopwords_list)
 
-        print(stoplist)
-        import time
-        start = time.time()
-
         pipeline = []
 
         match_set = MatchSet(
@@ -198,14 +248,14 @@ class AggregationMatcher(object):
 
         pipeline.append(lookup_feature_set)
 
-        lookup_frequency = \
-            {'$lookup': {
-                'from': 'frequencies',
-                'localField': 'frequency',
-                'foreignField': '_id',
-                'as': 'frequency'}}
-
-        pipeline.append(lookup_frequency)
+        # lookup_frequency = \
+        #     {'$lookup': {
+        #         'from': 'frequencies',
+        #         'localField': 'frequency',
+        #         'foreignField': '_id',
+        #         'as': 'frequency'}}
+        #
+        # pipeline.append(lookup_frequency)
 
         reshape_relevant_fields = \
             {'$project': {
@@ -214,7 +264,7 @@ class AggregationMatcher(object):
                 # NB this is wrong, but Jeff will be replacing this code
                 'unit': '$' + unit_types[0],
                 'feature': {'$arrayElemAt': ['$feature_set.' + feature, 0]},
-                'frequency': {'$arrayElemAt': ['$frequency.frequency', 0]}
+                # 'frequency': {'$arrayElemAt': ['$frequency.frequency', 0]}
             }}
 
         pipeline.append(reshape_relevant_fields)
@@ -228,7 +278,7 @@ class AggregationMatcher(object):
             'text': {'$addToSet': '$text'},
             'tokens': {'$push': '$_id'},
             'indices': {'$push': '$index'},
-            'features': {'$push': '$feature'},
+            # 'features': {'$push': '$feature'},
             'frequencies': {'$push': '$frequency'},
         }})
 
@@ -239,7 +289,8 @@ class AggregationMatcher(object):
             for t in texts
         }})
 
-        agg_matches = self.connection.aggregate('tokens', pipeline, encode=False)
+        agg_matches = self.connection.aggregate(
+            'tokens', pipeline, encode=False)
         agg_matches = agg_matches.next()
 
         matches = []
@@ -248,7 +299,9 @@ class AggregationMatcher(object):
         target = agg_matches[str(texts[1].id)]
 
         p = mp.Pool()
-        results = p.map(score_wrapper, [(unit, target, distance_metric, match_set) for unit in source])
+        results = p.map(
+            score_wrapper,
+            [(unit, target, distance_metric, match_set) for unit in source])
         p.close()
         p.join()
 
@@ -262,7 +315,8 @@ def score_wrapper(args):
     return score(*args)
 
 
-def score(source_unit, target_units, distance_metric, match_set):
+def score(source_unit, target_units, distance_metric, match_set,
+          source_frequencies, target_frequencies):
     matches = []
     for t in target_units:
         intersect = set(source_unit['features']) & set(t['features'])
@@ -273,8 +327,8 @@ def score(source_unit, target_units, distance_metric, match_set):
             source_indices = np.array(source_unit['indices'])[source_matches]
             target_indices = np.array(t['indices'])[target_matches]
 
-            source_frequencies = np.array(source_unit['frequencies'], dtype=np.float32)[source_matches]
-            target_frequencies = np.array(t['frequencies'], dtype=np.float32)[target_matches]
+            # source_frequency_arr = np.array(source_unit['frequencies'], dtype=np.float32)[source_matches]
+            # target_frequency_arr = np.array(t['frequencies'], dtype=np.float32)[target_matches]
 
             if distance_metric == 'frequency':
                 source_dist = np.sum(source_indices[np.argsort(source_frequencies)[:1]])
