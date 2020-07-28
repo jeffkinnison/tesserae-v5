@@ -109,13 +109,12 @@ class SparseMatrixSearch(object):
         stoplist = self.connection.aggregate(
             Feature.collection, pipeline, encode=False)
         stoplist = list(stoplist)
-        print([(s['token'], s['frequency']) for s in stoplist])
         return np.array([s['index'] for s in stoplist], dtype=np.uint32)
 
     def match(self, search_id, source, target, feature, stopwords=10,
               stopword_basis='corpus', score_basis='word',
               frequency_basis='texts', max_distance=10,
-              distance_metric='frequency', min_score=6):
+              distance_metric='frequency', min_score=6, parallel=True):
         """Find matches between one or more texts.
 
         Texts will contain lines or phrases with matching tokens, with varying
@@ -159,7 +158,7 @@ class SparseMatrixSearch(object):
         ValueError
             Raised when a parameter was poorly specified
         """
-        texts = [source.text, target.text]
+        start = time.time()
         if isinstance(stopwords, int):
             stopword_basis = stopword_basis if stopword_basis != 'texts' \
                     else texts
@@ -169,10 +168,11 @@ class SparseMatrixSearch(object):
                 source.text.language,
                 basis=stopword_basis)
         else:
-            stoplist = self.get_stoplist(
-                stopwords,
-                'form' if feature == 'form' else 'lemmata',
-                source.text.language)
+            stoplist = get_stoplist(stopwords)
+        print('Stoplist creation: {}s'.format(time.time() - start))
+
+        frequency_basis = frequency_basis if frequency_basis != 'texts' \
+                          else texts
 
         features = sorted(
                 self.connection.find(
@@ -196,18 +196,26 @@ class SparseMatrixSearch(object):
                     self.connection, feature, texts, target_units, source_units
                 )
         else:
-            source_frequencies_getter, target_frequencies_getter = \
-                _get_text_frequency_getters(self.connection, feature, texts)
+            match_ents = _score_by_text_frequencies(search_id,
+                    self.connection, feature,
+                    texts, target_units, source_units, features, stoplist,
+                    distance_metric, max_distance, tag_helper)
 
-        match_ents = _score(
-            search_id, target_units,
-            source_units, features,
-            set(stoplist),
-            distance_metric,
-            max_distance, source_frequencies_getter,
-            target_frequencies_getter,
-            tag_helper
-        )
+        stopword_tokens = [s.token
+                for s in self.connection.find(
+                    Feature.collection, index=[int(i) for i in stoplist],
+                    language=texts[0].language, feature=feature)]
+        parameters = {
+            'unit_types': [unit_type for _ in range(len(texts))],
+            'method': {
+                'name': self.matcher_type,
+                'feature': feature,
+                'stopwords': stopword_tokens,
+                'freq_basis': frequency_basis if frequency_basis == 'corpus' else [t.id for t in frequency_basis],
+                'max_distance': max_distance,
+                'distance_basis': distance_metric
+            }
+        }
 
         return match_ents
 
